@@ -1,0 +1,345 @@
+#!/usr/bin/env bash
+#  ██████╗ ██╗ ██████╗███████╗    ██╗███╗   ██╗███████╗████████╗ █████╗ ██╗     ██╗     ███████╗██████╗
+#  ██╔══██╗██║██╔════╝██╔════╝    ██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗
+#  ██████╔╝██║██║     █████╗      ██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝
+#  ██╔══██╗██║██║     ██╔══╝      ██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗
+#  ██║  ██║██║╚██████╗███████╗    ██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║
+#  ╚═╝  ╚═╝╚═╝ ╚═════╝╚══════╝    ╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝
+#   Script to install my dotfiles
+#   Author: ddat-tebayo
+#   url: https://github.com/ddat-tebayo
+
+RED=$(tput setaf 1)
+GRN=$(tput setaf 2)
+YLW=$(tput setaf 3)
+BLU=$(tput setaf 4)
+MGT=$(tput setaf 5)
+CYN=$(tput setaf 6)
+WHT=$(tput setaf 7)
+BLD=$(tput bold)
+RST=$(tput sgr0)
+
+display_logo () {
+	printf "
+                        $BLU.
+                       $BLU/ $MGT\\
+                      $BLU/   $MGT\\
+                     $BLU/^.   $MGT\\
+                    $BLU/  .$WHT-$MGT.  \\
+                   $BLU/  (   $MGT) _\\
+                  $BLU/ _.~   $MGT~._^\\
+                 $BLU/.^         $MGT^.\\
+
+	"
+    printf "$RED󰮯   $CYN   $YLW󰊠   $WHT   $MGT󰊠   $GRN   $BLU󰊠   $RED   $WHT󰮯\n"
+}
+
+info_msg() {
+    printf '\n\n%s%s[%s %s%s %s%s %s%s]%s\n\n' "${BLD}" "${RED}" "${RST}" "${BLD}" "${BLU}" "${1:?}" "${RST}" "${BLD}" "${RED}" "${RST}"
+}
+installing_msg() {
+    printf '%s%s %s %s\n' "${BLD}" "${WHT}" "${1:?}" "${RST}"
+}
+success_msg() {
+    printf '%s%s %s %s\n' "${BLD}" "${GRN}" "${1:?}" "${RST}"
+}
+warning_msg() {
+    printf '%s%s %s %s\n' "${BLD}" "${YLW}" "${1:?}" "${RST}"
+}
+error_msg() {
+    printf '%s%s %s %s\n' "${BLD}" "${RED}" "${1:?}" "${RST}" | tee -a ~/RiceError.log
+}
+
+########## ---------- Warning ---------- ##########
+display_logo
+info_msg "Welcome!"
+
+if [ "$(id -u)" = 0 ]; then
+    warning_msg "This script MUST NOT be run as root user"
+    exit 1
+fi
+
+home_dir=$HOME
+current_dir=$(pwd)
+
+if [ "$current_dir" != "$home_dir" ]; then
+    warning_msg "The script must be executed from the HOME directory"
+    exit 1
+fi
+
+printf '%s%sThis script will:\n%s- Install an AUR helper (paru).\n- Check for necessary dependencies and install any that are missing.\n- Clone my repository into your HOME directory, backs up your files, and copies new files.\n- DO NOT modify any of your system configurations.\n- Need your root password to install missing dependencies.%s\n\n' "${BLD}" "${BLU}" "${RST}"
+
+while true; do
+    read -rp "$BLD$YLW Do you wish to continue? [y/N]: $RST" yn
+    case $yn in
+        [Yy]* ) break ;;
+        [Nn]* ) exit ;;
+        * ) error_msg "Error: just write 'y' or 'n'" ;;
+    esac
+done
+clear
+
+display_logo
+
+########## ---------- Utility Function ---------- ##########
+backup() {
+    local src=$1
+    local backup_folder="$HOME/.RiceBackup"
+    local datetime=$(date +%Y%m%d-%H%M%S)
+
+    local base_name=$(basename "$src")
+    local dest="$backup_folder/$base_name"_"$datetime"
+
+    [ ! -d "$backup_folder" ] && mkdir -p "$backup_folder"
+    
+    if [ -d "$src" ] || [ -f "$src" ]; then
+        if mv "$src" "$dest" 2>> RiceError.log; then
+            success_msg "'$base_name' backed up successfully at $dest"
+        else
+            error_msg "Failed to backup '$base_name'. See ~/RiceError.log"
+        fi
+    else
+        warning_msg "'$base_name' does not exist, no backup needed"
+    fi
+    printf "\n"
+}
+
+copy_from_dotfiles() {
+    local src=$1
+    local dest=$2
+    local base_name=$(basename "$src")
+
+    if cp -R "$src" "$dest" 2>> RiceError.log; then
+        success_msg "Copy '$base_name' to '$dest' succesfully"
+    else
+        error_msg "'$base_name' failed to copy. See ~/RiceError.log for more details"
+    fi
+}
+
+restart_shell_session() {
+    # Get the current shell
+    current_shell=$(echo $SHELL)
+
+    # Determine the configuration file based on the current shell
+    case "$current_shell" in
+        */bash)
+            config_file=".bashrc"
+            ;;
+        */zsh)
+            config_file=".zshrc"
+            ;;
+        */fish)
+            config_file=".config/fish/config.fish"
+            ;;
+        *)
+            error_msg "Unsupported shell: $current_shell"
+            exit 1
+            ;;
+    esac
+
+    # Restart the session by sourcing the appropriate configuration file
+    if source ~/$config_file; then
+        success_msg "Restarted shell session"
+    fi
+}
+########## ---------- Functional components ---------- ##########
+install_pacman_wrappers() {
+    if ! command -v $pacman_wrappers >/dev/null 2>&1; then
+        info_msg "Install $pacman_wrappers (AUR Helper), this could take a long time..."
+        installing_msg "Installing $pacman_wrappers..."
+        {
+            # Install rustup, cargo, rustc... before installing paru
+            sudo pacman -S base-devel rustup --noconfirm
+            rustup default stable
+
+            # Install paru
+            cd "$HOME" || exit
+            git clone --no-progress https://aur.archlinux.org/$pacman_wrappers.git
+            cd $pacman_wrappers || exit
+            makepkg -si --noconfirm
+            cd "$HOME" && rm -rf $pacman_wrappers
+            clear
+
+            success_msg "Install $pacman_wrappers (AUR helper) successfully"
+            restart_shell_session
+            sleep 2
+        } || {
+            error_msg "   Failed to install $pacman_wrappers. You may need to install it manually."
+            sleep 3
+            exit 1
+        }
+    fi
+}
+
+check_install_dependencies() {
+    local dependencies="$1"
+    local missing=()
+
+    # Split the string into an array using space as delimiter
+    IFS=' ' read -r -a deps <<< "$dependencies"
+
+    is_installed() {
+        pacman -Q "$1" &> /dev/null
+    }
+    installing_msg "Checking for required packages..."
+
+    for package in "${deps[@]}"; do
+        if ! is_installed "$package"; then
+            missing+=("$package")
+        else
+            warning_msg "   '$package' is already installed on your system!"
+        fi
+    done
+
+    if [ ${#missing[@]} -gt 0 ]; then
+        for package in "${missing[@]}"; do
+            if $pacman_wrappers -S "$package" --noconfirm --skipreview >/dev/null 2>&1; then
+                success_msg "   '$package' has been installed successfully"
+            else
+                error_msg "   Failed to install '$package'. You may need to install it manually"
+            fi
+        done
+    fi
+    printf "\n"
+}
+
+prepare_folder() {
+    # Checks if the user-dirs.dirs file doesn't exist in ~/.config
+    if [ ! -e "$HOME/.config/user-dirs.dirs" ]; then
+        xdg-user-dirs-update
+    fi
+}
+
+clone_the_rice() {
+    info_msg "Clone the Rice dotfiles"
+
+    repo_url="https://github.com/ddat-tebayo/dotfiles"
+    repo_dir="$HOME/dattebayo_dotfiles"
+
+    # Checks if the repository folder exists, and deletes it if it does
+    if [ -d "$repo_dir" ]; then
+        rm -rf "$repo_dir"
+    fi
+
+    # Clone the repository
+    installing_msg "Cloning dotfiles from $repo_url"
+    {
+        git clone --depth=1 "$repo_url" "$repo_dir" >/dev/null 2>&1
+        rm -rf ~/.config/nvim/.git
+        rm -rf ~/.config/nvim/.github
+        success_msg "   Clone dotfiles repo successfully"
+        sleep 2
+    } || {
+        error_msg "   Failed to clone dotfiles. You may need to install it manually."
+        exit 1
+    }
+}
+
+backup_old_config() {
+    info_msg "Backup files, store in ~/.RiceBackup"
+
+    for folder in alacritty bspwm dunst eww mpd ncmpcpp paru picom polybar ranger rofi sxhkd; do
+        backup "$HOME/.config/$folder"
+    done
+
+    backup "$HOME/.mozilla/firefox/*.default-release/chrome"
+    backup "$HOME/.mozilla/firefox/*.default-release/user.js"
+
+    sleep 2
+}
+
+copy_the_rice() {
+    info_msg "Install dotfiles"
+    installing_msg "Copying files to their respective directories.."
+
+    [ ! -d ~/.config ] && mkdir -p ~/.config
+    [ ! -d ~/.local/bin ] && mkdir -p ~/.local/bin
+    [ ! -d ~/.local/share ] && mkdir -p ~/.local/share
+
+    for dirs in $repo_dir/.config/*; do
+        copy_from_dotfiles "${dirs}" "$HOME/.config/"
+    done
+
+    for folder in applications asciiart fonts; do
+        copy_from_dotfiles "$repo_dir/.local/share/$folder" "$HOME/.local/share/"
+    done
+
+    copy_from_dotfiles "$repo_dir/.local/bin/" "$HOME/.local/"
+
+    fc-cache -rv >/dev/null 2>&1
+    sleep 2
+}
+
+install_needed_apps() {
+    {
+        info_msg "Install zscroll (scroll the currently playing mpd song)"
+        installing_msg "Installing zscroll dependencies..."
+
+        # Install python-setuptools to address 'distutils' deprecation in Python 3.12
+        # Get current Python version
+        current_version=$(python3 --version 2>&1 | awk '{print $2}')
+
+        # Check if the version matches 3.12.*
+        if [[ $current_version == 3.12.* ]]; then
+            if $pacman_wrappers -S python-setuptools --noconfirm >/dev/null 2>&1; then
+                success_msg "   'python-setuptools' has been installed successfully"
+            else
+                error_msg "   Failed to install 'python-setuptools'. You may need to install it manually"
+            fi
+        fi
+
+        check_install_dependencies "zscroll-git"
+        sleep 2
+    }
+
+    {
+        info_msg "Install starship"
+        check_install_dependencies "starship"
+
+        if ! grep -Fxq "# export starship environment variable" ~/.zshrc; then
+        {
+            printf '\n# export starship environment variable\n'
+            printf 'eval "$(starship init zsh)"\n'
+            printf 'export STARSHIP_CONFIG=~/.config/punk_records/starship.toml\n'
+        } | tee -a ~/.zshrc > /dev/null
+        fi
+        
+        restart_shell_session
+        sleep 2
+    }
+}
+enable_needed_services() {
+    {
+        ##### Enable MPD service #####
+
+        info_msg "Enable mpd service"
+        # Check if the mpd service is enabled at the global (system) level
+        if systemctl is-enabled --quiet mpd.service; then
+            warning_msg "Disabling and stopping the global mpd service"
+            sudo systemctl stop mpd.service
+            sudo systemctl disable mpd.service
+        fi
+        installing_msg "Enabling and starting the user-level mpd service"
+        systemctl --user enable --now mpd.service
+        success_msg "Enable mpd service successfully"
+    }
+}
+
+####################################################
+# For this installation, you need an AUR helper. I use `paru`, you can check other AUR helpers here:
+# https://wiki.archlinux.org/title/AUR_helpers#Pacman_wrappers
+pacman_wrappers="paru" 
+install_pacman_wrappers # Install paru
+
+# Install needed packages
+info_msg "Install needed packages, some packages could take 10 mins or more"
+check_install_dependencies "alacritty brightnessctl bspwm \
+dunst eww feh firefox imagemagick jgmenu jq kitty maim mpc mpd neofetch ncmpcpp pacman-contrib papirus-icon-theme picom playerctl \
+polybar ranger rofi sxhkd ttf-jetbrains-mono ttf-jetbrains-mono-nerd xclip xdg-user-dirs xdo xqp yt-dlp"
+
+prepare_folder # Prepare Folders
+clone_the_rice # Clone the Rice!
+backup_old_config # Backup old config, store in ~/.RiceBackup
+copy_the_rice # Copy files and dirs to their respective directories.
+install_needed_apps # Install and config needed apps/tools
+enable_needed_services # Enable/Start needed service
